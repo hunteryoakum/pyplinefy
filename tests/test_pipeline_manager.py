@@ -31,8 +31,8 @@ async def test_pipeline_shutdown_propagation():
     pipeline = ManagedPipeline(stage_funcs, concurrency=1)
     # Add one item.
     await pipeline.add_data(10)
-    # Immediately initiate shutdown.
-    await pipeline.shutdown()
+    # Immediately initiate immediate shutdown.
+    await pipeline.shutdown(immediate=True)
     # The pipeline should eventually return a shutdown signal (None).
     result = await pipeline.get_result()
     assert result is None

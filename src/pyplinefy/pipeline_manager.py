@@ -15,6 +15,7 @@ class ManagedPipeline:
     This pipeline supports:
       - Configurable concurrency (number of worker tasks per stage).
       - Graceful shutdown via a sentinel value that propagates through all stages.
+      - Immediate shutdown that cancels tasks and discards pending work.
       - Robust error handling (errors are logged and processing continues).
       - Logging of queue sizes for monitoring.
     """
@@ -87,18 +88,36 @@ class ManagedPipeline:
             return None
         return result
 
-    async def shutdown(self):
+    async def shutdown(self, immediate: bool = False):
         """
-        Gracefully shut down the pipeline by sending sentinel values to the first stage.
-        These shutdown signals propagate through all stages, causing each worker to exit cleanly.
+        Shut down the pipeline.
+        
+        Args:
+            immediate (bool): If True, cancel all worker tasks immediately (discarding pending work)
+                              and inject a shutdown sentinel into the final queue.
+                              If False, perform a graceful shutdown by propagating sentinel values.
         """
-        # Send as many sentinel values as there are workers in the first stage.
-        num_workers = self.concurrency[0]
-        for _ in range(num_workers):
-            await self.queue_interface.put(self.queue_keys[0], _SENTINEL)
-        # Wait for all worker tasks to finish.
-        await asyncio.gather(*self.pipeline_tasks, return_exceptions=True)
-        logging.info("Pipeline shutdown complete.")
+        if immediate:
+            # Immediate shutdown: cancel all worker tasks.
+            for task in self.pipeline_tasks:
+                task.cancel()
+            await asyncio.gather(*self.pipeline_tasks, return_exceptions=True)
+            # Clear the final queue.
+            final_queue = self.queue_manager.get_queue(self.queue_keys[-1])
+            while not final_queue.empty():
+                try:
+                    final_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            await self.queue_interface.put(self.queue_keys[-1], _SENTINEL)
+            logging.info("Immediate pipeline shutdown complete.")
+        else:
+            # Graceful shutdown: send sentinel values to the first stage.
+            num_workers = self.concurrency[0]
+            for _ in range(num_workers):
+                await self.queue_interface.put(self.queue_keys[0], _SENTINEL)
+            await asyncio.gather(*self.pipeline_tasks, return_exceptions=True)
+            logging.info("Pipeline shutdown complete.")
 
     def log_queue_sizes(self) -> None:
         """
