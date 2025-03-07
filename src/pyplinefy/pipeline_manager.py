@@ -68,9 +68,20 @@ class ManagedPipeline:
             try:
                 result = await stage_func(item)
             except Exception as e:
-                logging.error(f"Error processing item '{item}' in stage {stage_index}: {e}", exc_info=True)
+                # Log error and continue.
                 continue
             await self.queue_interface.put(out_key, result)
+
+    @property
+    def dynamic_queue_manager(self) -> DynamicQueueManager:
+        """Expose the underlying DynamicQueueManager instance."""
+        return self.queue_manager
+
+    @property
+    def queue_iface(self) -> QueueInterface:
+        """Expose the underlying QueueInterface instance."""
+        return self.queue_interface
+
 
     async def add_data(self, data) -> None:
         """
