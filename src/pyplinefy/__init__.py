@@ -1,5 +1,15 @@
-from .dynamic_queue_manager import DynamicQueueManager
+# src/pyplinefy/__init__.py
+from .queue_manager import QueueManager, AutoQueueManager
 from .queue_interface import QueueInterface
-from .pipeline_manager import ManagedPipeline
+from .managed_pipeline import ManagedPipeline, StageWorker
+from .factory import create_queue_interface
 
-__all__ = ["DynamicQueueManager", "QueueInterface", "ManagedPipeline"]
+__all__ = [
+    "QueueManager",
+    "AutoQueueManager",
+    "QueueInterface",
+    "ManagedPipeline",
+    "StageWorker",
+    "create_queue_interface",
+]
+

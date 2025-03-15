@@ -1,28 +1,20 @@
 # pyplinefy
 
-**pyplinefy** is a Python package for building and managing asynchronous processing pipelines with ease. It is built on Python’s `asyncio` to create linear pipelines that automatically manage queues between processing stages. Each stage is defined as an asynchronous function, and the package takes care of queue management, error handling, configurable concurrency, and graceful shutdown.
-
+**pyplinefy** is a Python package for building and managing asynchronous processing pipelines with ease. It leverages Python’s `asyncio` to create linear pipelines that automatically manage queues between processing stages. Each stage is defined as an asynchronous function, and the package handles queue management, error handling, configurable concurrency, and graceful shutdown. The package is designed in a modular and extensible way with separate components for queue management, a queue interface, a managed pipeline, and a factory function for creating queue interfaces.
 
 ## Features
 
-- **Managed Pipeline:** Build a full asynchronous pipeline by simply providing a list of async functions.
+- **Managed Pipeline:** Build a full asynchronous pipeline by providing a list of async functions.
 - **Dynamic Queue Management:** Automatically creates and manages queues for each processing stage.
-- **Configurable Concurrency:** Easily specify how many worker tasks should run per stage.
+- **Configurable Concurrency:** Easily specify the number of worker tasks per stage.
 - **Graceful Shutdown:** Uses a sentinel mechanism to signal shutdown and allow workers to exit cleanly.
-- **Enhanced Logging:** Built-in logging for queue sizes and error tracking.
-- **Extensible and Modular:** A clean, modular codebase that you can easily extend or integrate into your own projects.
+- **Enhanced Logging:** Built-in logging for monitoring queue sizes and error tracking.
+- **Queue Factory:** Create a queue interface with pre-created queues using either explicit or auto queue management.
+- **Modular Design:** The package includes components like `QueueManager`, `QueueInterface`, `ManagedPipeline`, and a factory function `create_queue_interface`.
 
 ## Installation
 
-You must install **pyplinefy** directly from source until it is available from PyPI.
-
-<!-- ### From PyPI
-
-```bash
-pip install pyplinefy
-``` -->
-
-### From Source
+Until **pyplinefy** is available on PyPI, install it directly from source:
 
 ```bash
 git clone https://github.com/hunteryoakum/pyplinefy.git
@@ -32,11 +24,13 @@ pip install -e .
 
 ## Usage
 
-Below is an example of how to use pyplinefy to create a simple asynchronous pipeline:
+### Creating a Managed Pipeline
+
+Below is an example of how to create a simple asynchronous pipeline using `ManagedPipeline`:
 
 ```python
 import asyncio
-from pyplinefy.pipeline_manager import ManagedPipeline
+from pyplinefy.managed_pipeline import ManagedPipeline
 
 # Define asynchronous processing stages
 async def multiply_by_two(item):
@@ -59,7 +53,7 @@ async def main():
     for i in range(5):
         await pipeline.add_data(i)
     
-    # Allow some time for the pipeline to process the items
+    # Allow some time for processing
     await asyncio.sleep(2)
     
     # Retrieve results from the final stage
@@ -77,27 +71,50 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-
 This example creates a pipeline with three stages:
+1. **multiply_by_two:** Multiplies each input by 2.
+2. **add_five:** Adds 5 to the result.
+3. **to_string:** Converts the result to a string.
 
-1. multiply_by_two: Multiplies each input by 2.
-2. add_five: Adds 5 to the result.
-3. to_string: Converts the result to a string.
+### Using the Queue Factory
 
+You can also automatically create a `QueueInterface`, its underlying `QueueManager`, and all associated queues using the `create_queue_interface` factory function:
+
+```python
+import asyncio
+from pyplinefy.factory import create_queue_interface
+
+queue_names = ["alpha", "beta", "gamma"]
+
+# Pre-create queues "alpha", "beta", and "gamma"
+qi = create_queue_interface(queue_keys=queue_names, maxsize=10, auto=False)
+
+# Use the QueueInterface to put and get items
+async def demo():
+    await qi.put("alpha", "test_item")
+    item = await qi.get("alpha")
+    print("Retrieved item:", item)
+
+asyncio.run(demo())
+```
 
 ## Testing
 
-Tests are provided using pytest and pytest-asyncio to handle asynchronous test functions.
+Tests are written using [pytest](https://docs.pytest.org/) and [pytest-asyncio](https://github.com/pytest-dev/pytest-asyncio) to handle asynchronous test functions.
 
 ### Running the Tests
+
 1. Install the test dependencies (if not already installed):
-```bash
-pip install pytest pytest-asyncio
-```
+
+    ```bash
+    pip install pytest pytest-asyncio
+    ```
+
 2. Execute the tests from the root of the repository:
-```bash
-pytest
-```
+
+    ```bash
+    pytest
+    ```
 
 ## Contributing
 
@@ -105,4 +122,4 @@ Contributions are welcome! If you encounter issues or have suggestions for new f
 
 ## License
 
-pyplinefy is licensed under the MIT License. See the LICENSE file for details.
+**pyplinefy** is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
