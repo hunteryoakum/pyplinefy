@@ -10,42 +10,65 @@ _SENTINEL = object()
 class ManagedPipeline:
     """
     Fully managed asynchronous pipeline that automatically creates queues and worker tasks.
-    
-    Users only need to provide a list of async functions as stages.
-    This pipeline supports:
+
+    Users may provide the pipeline stages either as:
+      - A list of async functions, in which case queues are auto-named (e.g. "stage_0", "stage_1", ...)
+      - A dict mapping names to async functions, so you can name the queues. In this case,
+        the insertion order is used, and an extra final output queue (named "final") is appended.
+
+    The pipeline supports:
       - Configurable concurrency (number of worker tasks per stage).
       - Graceful shutdown via a sentinel value that propagates through all stages.
       - Immediate shutdown that cancels tasks and discards pending work.
       - Robust error handling (errors are logged and processing continues).
       - Logging of queue sizes for monitoring.
     """
-    def __init__(self, stage_funcs: list, concurrency=1, maxsize: int = 0):
+    def __init__(self, stage_funcs, concurrency=1, maxsize: int = 0):
         """
         Args:
-            stage_funcs (list): List of async functions for each stage.
+            stage_funcs (list or dict): Either a list of async functions or a dict mapping queue names
+                                        to async functions.
             concurrency (int or list): Number of workers per stage. If an int, it applies to all stages.
             maxsize (int): Maximum size for each queue (0 means unlimited).
         """
         self.queue_manager = DynamicQueueManager(maxsize=maxsize)
         self.queue_interface = QueueInterface(self.queue_manager)
-        self.stage_funcs = stage_funcs
+
+        # Handle both list and dict inputs for stage_funcs.
+        if isinstance(stage_funcs, dict):
+            # In dict mode, preserve insertion order (Python 3.7+)
+            self.stage_keys = list(stage_funcs.keys())
+            self.stage_funcs_list = list(stage_funcs.values())
+            # Append an extra queue for the final output, named "final".
+            self.queue_keys = self.stage_keys + ["final"]
+        elif isinstance(stage_funcs, list):
+            # Auto-generate keys as "stage_0", "stage_1", ...
+            num_stages = len(stage_funcs)
+            self.stage_funcs_list = stage_funcs
+            self.queue_keys = [f"stage_{i}" for i in range(num_stages + 1)]
+        else:
+            raise ValueError("stage_funcs must be either a list or a dict")
+
+        # For user convenience, expose the input and output keys.
+        self.input_queue_key = self.queue_keys[0]
+        self.output_queue_key = self.queue_keys[-1]
 
         # Normalize concurrency into a list (one entry per stage).
+        num_stages = len(self.stage_funcs_list)
         if isinstance(concurrency, int):
-            self.concurrency = [concurrency] * len(stage_funcs)
+            self.concurrency = [concurrency] * num_stages
         else:
-            if len(concurrency) != len(stage_funcs):
+            if len(concurrency) != num_stages:
                 raise ValueError("Length of concurrency list must match number of stages")
             self.concurrency = concurrency
 
         self.pipeline_tasks = []
-        # Automatically create queue keys; note that we need one more queue than stages.
-        self.queue_keys = [f"stage_{i}" for i in range(len(stage_funcs) + 1)]
+        # Create all queues.
         for key in self.queue_keys:
             self.queue_manager.get_queue(key)
 
         # Launch worker tasks for each stage with configurable concurrency.
-        for i, stage_func in enumerate(stage_funcs):
+        for i, stage_func in enumerate(self.stage_funcs_list):
             in_key = self.queue_keys[i]
             out_key = self.queue_keys[i + 1]
             num_workers = self.concurrency[i]
@@ -68,7 +91,7 @@ class ManagedPipeline:
             try:
                 result = await stage_func(item)
             except Exception as e:
-                # Log error and continue.
+                logging.error(f"Error processing item '{item}' in stage {stage_index}: {e}", exc_info=True)
                 continue
             await self.queue_interface.put(out_key, result)
 
@@ -82,19 +105,18 @@ class ManagedPipeline:
         """Expose the underlying QueueInterface instance."""
         return self.queue_interface
 
-
     async def add_data(self, data) -> None:
         """
-        Feed initial data into the pipeline.
+        Feed initial data into the pipeline. Data is added to the first stage's input queue.
         """
-        await self.queue_interface.put(self.queue_keys[0], data)
+        await self.queue_interface.put(self.input_queue_key, data)
 
     async def get_result(self):
         """
-        Retrieve a processed result from the final stage's output queue.
+        Retrieve a processed result from the final output queue.
         If a shutdown sentinel is encountered, returns None.
         """
-        result = await self.queue_interface.get(self.queue_keys[-1])
+        result = await self.queue_interface.get(self.output_queue_key)
         if result is _SENTINEL:
             return None
         return result
@@ -114,19 +136,19 @@ class ManagedPipeline:
                 task.cancel()
             await asyncio.gather(*self.pipeline_tasks, return_exceptions=True)
             # Clear the final queue.
-            final_queue = self.queue_manager.get_queue(self.queue_keys[-1])
+            final_queue = self.queue_manager.get_queue(self.output_queue_key)
             while not final_queue.empty():
                 try:
                     final_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-            await self.queue_interface.put(self.queue_keys[-1], _SENTINEL)
+            await self.queue_interface.put(self.output_queue_key, _SENTINEL)
             logging.info("Immediate pipeline shutdown complete.")
         else:
             # Graceful shutdown: send sentinel values to the first stage.
             num_workers = self.concurrency[0]
             for _ in range(num_workers):
-                await self.queue_interface.put(self.queue_keys[0], _SENTINEL)
+                await self.queue_interface.put(self.input_queue_key, _SENTINEL)
             await asyncio.gather(*self.pipeline_tasks, return_exceptions=True)
             logging.info("Pipeline shutdown complete.")
 
