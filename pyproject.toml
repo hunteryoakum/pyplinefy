@@ -1,3 +1,19 @@
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyplinefy"
+version = "0.2.0"
+description = "A managed async pipeline package for Python."
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.7"
+license = { text = "MIT" }
+authors = [{ name = "Hunter Yoakum" }]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.urls]
+"Homepage" = "https://github.com/hunteryoakum/pyplinefy"
+"Bug Tracker" = "https://github.com/hunteryoakum/pyplinefy/issues"
